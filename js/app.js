@@ -247,6 +247,31 @@
     return "#e23b3b";
   }
 
+  // ---- touch detection & first-run hint ------------------------------------
+  function detectTouch() {
+    const touch = (window.matchMedia && matchMedia("(pointer: coarse)").matches) ||
+      "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    document.body.classList.toggle("is-touch", !!touch);
+    return !!touch;
+  }
+  function maybeShowTouchHint() {
+    let seen = false;
+    try { seen = localStorage.getItem("annotate-touch-hint") === "1"; } catch (e) {}
+    if (seen) return;
+    const el = document.createElement("div");
+    el.className = "touch-hint";
+    el.innerHTML = '<b>Touch tips</b>' +
+      '<span class="gest">✍️ One finger draws with the current tool</span>' +
+      '<span class="gest">🤏 Two fingers pan &amp; pinch-zoom</span>' +
+      '<span class="gest">👆 Pick the Select tool to scroll with one finger</span>' +
+      '<button type="button">Got it</button>';
+    el.querySelector("button").addEventListener("click", () => {
+      el.remove();
+      try { localStorage.setItem("annotate-touch-hint", "1"); } catch (e) {}
+    });
+    document.getElementById("viewport").appendChild(el);
+  }
+
   // ---- init ----------------------------------------------------------------
   function init() {
     ed.mount();
@@ -255,6 +280,7 @@
     AN.setTool("select");
     $("color-custom").value = toHex(S.color);
     updatePropbar();
+    if (detectTouch()) maybeShowTouchHint();
     checkAutosave();
   }
 

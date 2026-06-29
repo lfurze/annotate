@@ -59,6 +59,7 @@
   // capture the baseline *before* a mutation; pairs with commit() after.
   let pending = null;
   AN.beginChange = function () { pending = snapshot(); };
+  AN.cancelChange = function () { pending = null; };  // discard an aborted edit without committing
   AN.endChange = function () {
     if (suspendHistory || pending === null) { pending = null; return; }
     if (pending !== snapshot()) {

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "python3 -m http.server 8777",
     "samples": "python3 test/make_samples.py",
-    "test": "cd test && node qa.js && node qa2.js"
+    "test": "cd test && node qa.js && node qa2.js && node qa3.js"
   },
   "dependencies": {},
   "private": false

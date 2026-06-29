@@ -9,6 +9,14 @@
   let selectedId = null;
   const pageEls = {};   // pageId -> { slot, page, bg, svg, htmlLayer, ui }
 
+  // Active pointer operation (draw / drag / resize / pan). Registering a cancel
+  // lets the touch gesture layer abort an accidental stroke when a 2nd finger lands.
+  let activeOp = null;
+  ed.cancelActiveOp = function () { if (activeOp) { try { activeOp.cancel(); } catch (e) {} activeOp = null; } };
+  ed.viewport = function () { return viewportEl; };
+  function setOp(cancel) { activeOp = { cancel }; }
+  function clearOp() { activeOp = null; }
+
   AN.on("rerender", () => ed.render());
   AN.on("zoom", () => ed.applyZoom());
 
@@ -220,6 +228,7 @@
       const start = ptOnPage(a.page, e.clientX, e.clientY);
       const ox = a.x, oy = a.y; let moved = false;
       AN.beginChange();
+      const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
       const move = (ev) => {
         const p = ptOnPage(a.page, ev.clientX, ev.clientY);
         a.x = ox + (p.x - start.x); a.y = oy + (p.y - start.y);
@@ -227,11 +236,11 @@
         moved = true; drawSelection(a.id);
       };
       const up = (ev) => {
-        document.removeEventListener("pointermove", move);
-        document.removeEventListener("pointerup", up);
+        detach(); clearOp();
         AN.endChange();
         if (!moved && opts.onClickHandle) opts.onClickHandle();
       };
+      setOp(() => { detach(); a.x = ox; a.y = oy; wrap.style.left = ox + "px"; wrap.style.top = oy + "px"; drawSelection(a.id); AN.cancelChange(); });
       document.addEventListener("pointermove", move);
       document.addEventListener("pointerup", up);
     });
@@ -274,6 +283,7 @@
         const start = ptOnPage(a.page, e.clientX, e.clientY);
         const ow = wrap.offsetWidth, oh = wrap.offsetHeight;
         AN.beginChange();
+        const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
         const move = (ev) => {
           const p = ptOnPage(a.page, ev.clientX, ev.clientY);
           const w = Math.max(40, ow + (p.x - start.x));
@@ -283,7 +293,8 @@
           a.w = w; if (opts.onResize) opts.onResize(w, h); else a.w = w;
           drawSelection(a.id);
         };
-        const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); AN.endChange(); };
+        const up = () => { detach(); clearOp(); AN.endChange(); };
+        setOp(() => { detach(); AN.cancelChange(); });
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", up);
       });
@@ -316,6 +327,7 @@
       points: [[r2(p.x), r2(p.y)]] };
     const refs = pageEls[pageId];
     const node = buildStroke(a); refs.svg.appendChild(node);
+    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(pageId, ev.clientX, ev.clientY);
       const last = a.points[a.points.length - 1];
@@ -323,12 +335,8 @@
       a.points.push([r2(q.x), r2(q.y)]);
       node.setAttribute("d", pathFromPoints(a.points));
     };
-    const up = () => {
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
-      node.remove();
-      AN.addAnn(a); renderAnn(a);
-    };
+    const up = () => { detach(); clearOp(); node.remove(); AN.addAnn(a); renderAnn(a); };
+    setOp(() => { detach(); node.remove(); });   // cancel: discard the in-progress stroke
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
   }
@@ -342,6 +350,7 @@
       : { id: AN.uid(), page: pageId, type: tool, color: AN.settings.color, width: AN.settings.width, x: r2(p.x), y: r2(p.y), w: 0, h: 0 };
     const refs = pageEls[pageId];
     let node = buildShape(a); refs.svg.appendChild(node);
+    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(pageId, ev.clientX, ev.clientY);
       if (isLine) {
@@ -353,9 +362,9 @@
       }
       const fresh = buildShape(a); refs.svg.replaceChild(fresh, node); node = fresh;
     };
+    setOp(() => { detach(); node.remove(); });   // cancel: discard the in-progress shape
     const up = () => {
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
+      detach(); clearOp();
       node.remove();
       const big = isLine ? Math.hypot(a.x2 - a.x1, a.y2 - a.y1) > 3 : (Math.abs(a.w) > 3 && Math.abs(a.h) > 3);
       if (!big) return; // ignore stray clicks
@@ -419,7 +428,20 @@
       if (hitsVector(a, p, thr)) { hit = a; break; }
     }
     if (hit) { selectAnn(hit.id); startVectorDrag(hit, p, e); }
-    else { deselect(); }
+    else { deselect(); startPan(e); }
+  }
+
+  // Drag empty canvas to pan (hand-tool). On touch this is the one-finger pan in
+  // Select mode; on desktop it's a convenient grab-to-scroll.
+  function startPan(e) {
+    const vp = viewportEl; if (!vp) return;
+    const sx = vp.scrollLeft, sy = vp.scrollTop, x0 = e.clientX, y0 = e.clientY;
+    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+    const move = (ev) => { vp.scrollLeft = sx - (ev.clientX - x0); vp.scrollTop = sy - (ev.clientY - y0); };
+    const up = () => { detach(); clearOp(); };
+    setOp(detach);
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
   }
 
   function hitsVector(a, p, thr) {
@@ -446,9 +468,10 @@
 
   function startVectorDrag(a, p, e) {
     e.preventDefault();
-    const start = p; let moved = false;
+    const start = p;
     const orig = JSON.stringify(a);
     AN.beginChange();
+    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(a.page, ev.clientX, ev.clientY);
       const dx = q.x - start.x, dy = q.y - start.y;
@@ -456,9 +479,10 @@
       if (a.points) a.points = o.points.map(pt => [r2(pt[0] + dx), r2(pt[1] + dy)]);
       else if (a.type === "line" || a.type === "arrow") { a.x1 = o.x1 + dx; a.y1 = o.y1 + dy; a.x2 = o.x2 + dx; a.y2 = o.y2 + dy; }
       else { a.x = o.x + dx; a.y = o.y + dy; }
-      moved = true; rerenderAnn(a);
+      rerenderAnn(a);
     };
-    const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); AN.endChange(); };
+    const up = () => { detach(); clearOp(); AN.endChange(); };
+    setOp(() => { detach(); Object.assign(a, JSON.parse(orig)); rerenderAnn(a); AN.cancelChange(); });
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
   }

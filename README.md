@@ -29,8 +29,23 @@ It's a single folder of plain files with **no build step**, which makes it trivi
 - **Autosave** to local browser storage — reopen the tab and pick up where you left off
 - **Drag & drop** files anywhere onto the window
 - **Keyboard shortcuts** for every tool (press <kbd>?</kbd> in-app)
+- **Touch & mobile friendly** — auto-detected, with a bottom tool bar and natural gestures (see below)
 
 ![Annotating a Word document](docs/screenshot-docx.png)
+
+## Touch & mobile
+
+Annotate detects touch devices automatically and switches to a thumb-friendly layout (a scrollable tool bar along the bottom, larger targets, compact top bar). Gestures follow the convention drawing apps use:
+
+| Gesture | Does |
+|---|---|
+| **One finger** | Uses the current tool — draw, highlight, drag an annotation… |
+| **Two fingers** | Pan **and** pinch-zoom, from any tool. Starting a two-finger gesture cancels an accidental stroke the first finger began. |
+| **One finger in Select mode** | Scrolls/pans the page |
+
+<img src="docs/screenshot-mobile.png" alt="Annotate on a phone" width="320">
+
+On desktop, the same empty-canvas drag works as a quick grab-to-pan, and the mouse wheel scrolls as usual.
 
 ## Try it
 
@@ -83,7 +98,8 @@ js/state.js         State, undo/redo history, IndexedDB autosave
 js/import.js        File import — PDF / DOCX / image → pages
 js/editor.js        Page rendering, all tools, selection, move/resize
 js/io.js            Save / load self-contained HTML
-js/app.js           Toolbar, property bar, keyboard, init
+js/app.js           Toolbar, property bar, keyboard, touch detection, init
+js/gestures.js      Two-finger pan + pinch-zoom for touch devices
 vendor/             pdf.js (Apache-2.0) + mammoth (BSD-2) — vendored, offline
 samples/            Example PDF / DOCX / PNG for testing
 test/               Playwright QA suite + sample generator
@@ -113,6 +129,7 @@ python3 make_samples.py
 # 4. run the suites
 node qa.js     # import, all tools, save/load roundtrip, PDF, DOCX
 node qa2.js    # docx roundtrip, live restyle, resize, zoom
+node qa3.js    # touch: mobile layout, one-finger draw/pan, pinch-zoom
 ```
 
 Screenshots land in `test/screenshots/`.
