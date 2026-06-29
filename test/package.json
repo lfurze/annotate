@@ -1,0 +1,1 @@
+{ "name": "annotate-test", "private": true, "type": "commonjs", "dependencies": { "playwright": "^1.48.0" } }
