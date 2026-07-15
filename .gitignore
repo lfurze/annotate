@@ -3,4 +3,5 @@ test/.playwright/
 test/screenshots/
 *.log
 _site/
+.wrangler/
 .DS_Store

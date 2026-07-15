@@ -62,7 +62,8 @@
     pagesEl.hidden = !hasDoc;
     if (!hasDoc) return;
 
-    AN.state.pages.forEach((pg) => {
+    const appendices = [];
+    AN.state.pages.forEach((pg, pageIndex) => {
       const slot = document.createElement("div");
       slot.className = "page-slot";
       const page = document.createElement("div");
@@ -86,14 +87,18 @@
 
       const svg = svgEl("svg", { class: "vector", viewBox: "0 0 " + pg.w + " " + pg.h });
       const htmlLayer = document.createElement("div"); htmlLayer.className = "html-layer";
+      const commentAnchors = document.createElement("div"); commentAnchors.className = "comment-anchor-layer";
+      const commentRail = document.createElement("section"); commentRail.className = "comment-rail"; commentRail.setAttribute("aria-label", "Margin comments for page " + (pageIndex + 1));
+      const commentAppendix = document.createElement("section"); commentAppendix.className = "comment-appendix"; commentAppendix.dataset.page = pg.id; commentAppendix.setAttribute("aria-label", "Comments continued from page " + (pageIndex + 1));
       const ui = svgEl("svg", { class: "ui-layer", viewBox: "0 0 " + pg.w + " " + pg.h });
 
-      page.appendChild(svg); page.appendChild(htmlLayer); page.appendChild(ui);
-      slot.appendChild(page); pagesEl.appendChild(slot);
-      pageEls[pg.id] = { slot, page, svg, htmlLayer, ui };
+      page.appendChild(svg); page.appendChild(htmlLayer); page.appendChild(commentAnchors); page.appendChild(commentRail); page.appendChild(ui);
+      slot.appendChild(page); pagesEl.appendChild(slot); appendices.push(commentAppendix);
+      pageEls[pg.id] = { slot, page, svg, htmlLayer, commentAnchors, commentRail, commentAppendix, ui };
 
       attachPagePointer(pg.id);
     });
+    appendices.forEach(appendix => pagesEl.appendChild(appendix));
 
     ed.applyZoom();
     ed.refreshLazyBackgrounds();
@@ -101,7 +106,12 @@
   };
 
   ed.loadAllBackgrounds = function () {
-    document.querySelectorAll("#pages img.bg").forEach(img => { const src = lazyBackgrounds.get(img); if (src && img.src !== src) img.src = src; });
+    // Printing needs every raster page at once. Suspend lazy unloading first so
+    // an off-screen page cannot lose its src again while it is being decoded.
+    if (lazyObserver) { lazyObserver.disconnect(); lazyObserver = null; }
+    const images = Array.from(document.querySelectorAll("#pages img.bg"));
+    images.forEach(img => { const src = lazyBackgrounds.get(img); if (src && img.src !== src) img.src = src; });
+    return images;
   };
   ed.refreshLazyBackgrounds = function () {
     const images = Array.from(document.querySelectorAll("#pages img.bg"));
@@ -146,9 +156,10 @@
   function renderAllAnnotations() {
     AN.state.pages.forEach((pg) => {
       const refs = pageEls[pg.id]; if (!refs) return;
-      refs.svg.innerHTML = ""; refs.htmlLayer.innerHTML = "";
+      refs.svg.innerHTML = ""; refs.htmlLayer.innerHTML = ""; refs.commentAnchors.innerHTML = ""; refs.commentRail.innerHTML = ""; refs.commentAppendix.innerHTML = "";
     });
-    AN.state.anns.forEach(renderAnn);
+    AN.state.anns.filter(a => a.type !== "comment").forEach(renderAnn);
+    AN.state.pages.forEach(pg => renderPageComments(pg.id));
     if (selectedId) drawSelection(selectedId);
   }
   ed.renderAll = renderAllAnnotations;
@@ -159,10 +170,11 @@
     else if (a.type === "rect" || a.type === "ellipse" || a.type === "line" || a.type === "arrow") refs.svg.appendChild(buildShape(a));
     else if (a.type === "text") refs.htmlLayer.appendChild(buildText(a));
     else if (a.type === "note") refs.htmlLayer.appendChild(buildNote(a));
-    else if (a.type === "comment") refs.htmlLayer.appendChild(buildComment(a));
+    else if (a.type === "comment") renderPageComments(a.page);
   }
   function rerenderAnn(a) {
     const refs = pageEls[a.page]; if (!refs) return;
+    if (a.type === "comment") { renderPageComments(a.page); if (selectedId === a.id) drawSelection(a.id); return; }
     const existing = refs.page.querySelector('[data-id="' + a.id + '"]');
     if (existing) existing.remove();
     renderAnn(a);
@@ -240,25 +252,65 @@
       onResize: (w, h) => { a.w = w; a.h = h; } });
     return wrap;
   }
-  function buildComment(a) {
-    const wrap = document.createElement("div");
-    wrap.className = "ann ann-comment" + (a.open ? " open" : ""); wrap.dataset.id = a.id;
-    wrap.style.left = a.x + "px"; wrap.style.top = a.y + "px";
-    const pin = document.createElement("div"); pin.className = "pin";
-    const pinSvg = svgEl("svg", { viewBox: "0 0 28 30" });
-    pinSvg.appendChild(svgEl("path", { d: "M14 0C7 0 2 4.7 2 11c0 7.6 9.3 16.7 11.2 18.4a1.2 1.2 0 0 0 1.6 0C16.7 27.7 26 18.6 26 11 26 4.7 21 0 14 0z", fill: a.color, stroke: "#fff", "stroke-width": 1.5 }));
-    pinSvg.appendChild(svgEl("circle", { cx: 14, cy: 11, r: 4.2, fill: "#fff" }));
-    pin.appendChild(pinSvg);
-    const bubble = document.createElement("div"); bubble.className = "bubble";
-    const cbody = document.createElement("div"); cbody.className = "cbody"; cbody.textContent = a.text || "";
-    const meta = document.createElement("div"); meta.className = "cmeta"; meta.textContent = "Comment";
-    bubble.appendChild(cbody); bubble.appendChild(meta);
-    wrap.appendChild(pin); wrap.appendChild(bubble);
+  function renderPageComments(pageId) {
+    const refs = pageEls[pageId]; if (!refs) return;
+    refs.commentAnchors.innerHTML = ""; refs.commentRail.innerHTML = ""; refs.commentAppendix.innerHTML = "";
+    const comments = AN.annsForPage(pageId).filter(a => a.type === "comment").sort((a, b) => a.y - b.y || a.x - b.x);
+    refs.page.classList.toggle("has-comments", comments.length > 0);
+    let nextTop = 8;
+    comments.forEach((a, index) => {
+      const number = index + 1;
+      const anchor = document.createElement("button");
+      anchor.type = "button"; anchor.className = "comment-anchor"; anchor.dataset.commentId = a.id;
+      anchor.style.left = a.x + "px"; anchor.style.top = a.y + "px"; anchor.style.background = a.color; anchor.style.color = contrastText(a.color);
+      anchor.textContent = number; anchor.setAttribute("aria-label", "Go to margin comment " + number);
+      anchor.addEventListener("click", e => { e.stopPropagation(); selectAnn(a.id); const card = refs.commentRail.querySelector('[data-id="' + a.id + '"]'); if (card) card.focus(); });
+      anchor.addEventListener("pointerdown", e => {
+        if (AN.settings.tool !== "select") return; e.preventDefault(); e.stopPropagation(); selectAnn(a.id);
+        const start = ptOnPage(pageId, e.clientX, e.clientY), ox = a.x, oy = a.y; const release = capturePointer(e); AN.beginChange();
+        const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+        const move = ev => { const p = ptOnPage(pageId, ev.clientX, ev.clientY); a.x = Math.max(0, Math.min(refs.page.clientWidth, ox + p.x - start.x)); a.y = Math.max(0, Math.min(refs.page.clientHeight, oy + p.y - start.y)); anchor.style.left = a.x + "px"; anchor.style.top = a.y + "px"; };
+        const up = () => { detach(); clearOp(); AN.endChange(); renderPageComments(pageId); };
+        setOp(() => { detach(); a.x = ox; a.y = oy; AN.cancelChange(); renderPageComments(pageId); });
+        document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+      });
+      anchor.addEventListener("keydown", e => {
+        const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!delta) return;
+        e.preventDefault(); e.stopPropagation(); const step = e.shiftKey ? 10 : 1; AN.beginChange();
+        a.x = Math.max(0, Math.min(refs.page.clientWidth, a.x + delta[0] * step)); a.y = Math.max(0, Math.min(refs.page.clientHeight, a.y + delta[1] * step)); AN.endChange(); renderPageComments(pageId);
+        const moved = refs.commentAnchors.querySelector('[data-comment-id="' + a.id + '"]'); if (moved) moved.focus();
+      });
+      refs.commentAnchors.appendChild(anchor);
 
-    // pin drives drag + open toggle; bubble body is editable
-    bindHtmlAnn(wrap, a, { dragHandleSel: ".pin", editTarget: cbody, getText: () => cbody.textContent,
-      setText: (t) => a.text = t, onClickHandle: () => { a.open = !a.open; wrap.classList.toggle("open", a.open); } });
-    return wrap;
+      const card = document.createElement("article"); card.className = "ann ann-comment"; card.dataset.id = a.id; card.tabIndex = 0;
+      card.style.top = Math.max(nextTop, Math.min(a.y - 18, Math.max(8, refs.page.clientHeight - 100))) + "px";
+      card.setAttribute("role", "group");
+      const meta = document.createElement("div"); meta.className = "cmeta";
+      const badge = document.createElement("span"); badge.className = "comment-number"; badge.style.background = a.color; badge.style.color = contrastText(a.color); badge.textContent = number;
+      meta.appendChild(badge); meta.appendChild(document.createTextNode("Comment"));
+      const body = document.createElement("div"); body.className = "cbody"; body.textContent = a.text || ""; body.setAttribute("aria-label", "Margin comment text");
+      card.appendChild(meta); card.appendChild(body); refs.commentRail.appendChild(card);
+      const startEdit = e => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        selectAnn(a.id); AN.beginChange(); body.setAttribute("contenteditable", "true"); body.focus(); placeCaretEnd(body);
+        const finish = () => { body.removeEventListener("blur", finish); body.removeAttribute("contenteditable"); a.text = body.textContent; AN.endChange(); AN.scheduleAutosave(); };
+        body.addEventListener("blur", finish);
+      };
+      card.addEventListener("click", e => { e.stopPropagation(); selectAnn(a.id); });
+      card.addEventListener("dblclick", startEdit);
+      card.addEventListener("keydown", e => { if (!e.target.isContentEditable && e.key === "Enter") startEdit(e); });
+      nextTop = parseFloat(card.style.top) + card.offsetHeight + 10;
+      const copy = card.cloneNode(true); copy.removeAttribute("tabindex"); refs.commentAppendix.appendChild(copy);
+    });
+    const overflow = nextTop > refs.page.clientHeight;
+    refs.page.classList.toggle("comments-overflow", overflow);
+    refs.commentAppendix.classList.toggle("active", overflow);
+  }
+
+  function contrastText(hex) {
+    const value = String(hex || "#000000").replace("#", "");
+    const rgb = [0, 2, 4].map(i => parseInt(value.slice(i, i + 2), 16) / 255).map(c => c <= .03928 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4));
+    return .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2] > .42 ? "#111827" : "#ffffff";
   }
 
   function handle(kind) { const h = document.createElement("div"); h.className = "handle " + kind; h.dataset.handle = kind; return h; }
@@ -491,7 +543,7 @@
     const a = AN.addAnn({ page: pageId, type: "comment", x: r2(p.x), y: r2(p.y), text: "", color: AN.settings.color, open: true });
     renderAnn(a); selectAnn(a.id);
     AN.setTool("select");
-    const cbody = pageEls[pageId].htmlLayer.querySelector('[data-id="' + a.id + '"] .cbody');
+    const cbody = pageEls[pageId].commentRail.querySelector('[data-id="' + a.id + '"] .cbody');
     beginEdit(cbody, () => { a.text = cbody.textContent; });
   }
 
@@ -606,8 +658,9 @@
 
   ed.deleteSelected = function () {
     if (!selectedId) return;
-    const id = selectedId; deselect();
+    const id = selectedId, annotation = AN.getAnn(id); deselect();
     AN.removeAnn(id);
+    if (annotation && annotation.type === "comment") { renderPageComments(annotation.page); return; }
     const el = document.querySelector('[data-id="' + id + '"]'); if (el) el.remove();
   };
 
