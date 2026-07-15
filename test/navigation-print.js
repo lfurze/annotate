@@ -37,15 +37,18 @@ function check(name, ok, detail) {
   check("next control disables at the final page", next.nextDisabled);
 
   console.log("\n# Flattened print/PDF path");
-  const printed = await page.evaluate(() => {
+  const printed = await page.evaluate(async () => {
     window.__printCalled = false;
     const original = window.print;
     window.print = () => { window.__printCalled = true; };
-    const result = AN.io.print();
+    document.querySelectorAll("#pages img.bg").forEach(img => img.removeAttribute("src"));
+    const result = await AN.io.print();
+    const ready = Array.from(document.querySelectorAll("#pages img.bg")).every(img => img.complete && img.naturalWidth > 0);
     window.print = original;
-    return { result, called: window.__printCalled, selected: AN.editor.selectedId() };
+    return { result, called: window.__printCalled, ready, selected: AN.editor.selectedId() };
   });
   check("print action invokes the local browser print engine", printed.result && printed.called);
+  check("every lazy raster page is decoded before print starts", printed.ready);
   check("editor selection chrome is cleared before printing", printed.selected === null);
   const printCss = await page.evaluate(() => Array.from(document.styleSheets).some(sheet => {
     try { return Array.from(sheet.cssRules).some(rule => rule.media && rule.media.mediaText === "print"); }

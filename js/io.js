@@ -23,10 +23,15 @@
       '.ann-text{padding:3px 5px;white-space:pre-wrap;word-break:break-word;line-height:1.3}',
       '.ann-note{padding:10px 11px;box-shadow:0 4px 12px rgba(16,24,40,.18);border-radius:3px 3px 3px 12px;overflow:hidden}',
       '.ann-note .note-body{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.35}',
-      '.ann-comment{width:0;height:0}',
-      '.ann-comment .pin{position:absolute;left:-2px;top:-30px;width:28px;height:30px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.3))}',
-      '.ann-comment .bubble{position:absolute;left:24px;top:-30px;width:210px;background:#fff;border:1px solid #cdd2da;border-radius:8px;box-shadow:0 4px 14px rgba(16,24,40,.18);padding:8px 9px}',
-      '.ann-comment .cmeta{font-size:11px;color:#6b7280;margin-top:4px}',
+      '.comment-anchor-layer{position:absolute;inset:0;pointer-events:none}',
+      '.comment-anchor{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border:2px solid #fff;border-radius:50%;color:#fff;font-weight:700}',
+      '.comment-rail{position:absolute;left:calc(100% + 18px);top:0;width:224px;height:100%}',
+      '.ann-comment{left:0;width:202px;min-height:62px;background:#fff;border:1px solid #cdd2da;border-left:4px solid #2f6fed;border-radius:6px;box-shadow:0 4px 14px rgba(16,24,40,.18);padding:9px}',
+      '.ann-comment .cbody{white-space:pre-wrap;word-break:break-word;min-height:34px;font-size:13px}',
+      '.ann-comment .cmeta{display:flex;align-items:center;gap:6px;font-size:11px;color:#6b7280;margin-bottom:5px}',
+      '.comment-number{display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;color:#fff;font-weight:700}',
+      '.comment-appendix{width:760px;max-width:100%;box-sizing:border-box;margin:24px auto;padding:24px;background:#fff}',
+      '.comment-appendix .ann-comment{position:relative;top:auto!important;left:auto;width:auto;margin:0 0 10px}',
       '.handle{display:none!important}',
       AN.DOCX_CSS || "",
     ].join("\n");
@@ -41,6 +46,11 @@
     clone.querySelectorAll(".ui-layer").forEach(n => n.remove());
     clone.querySelectorAll(".handle").forEach(n => n.remove());
     clone.querySelectorAll("[contenteditable]").forEach(n => n.removeAttribute("contenteditable"));
+    clone.querySelectorAll("button.comment-anchor").forEach(button => {
+      const span = document.createElement("span"); span.className = button.className; span.textContent = button.textContent;
+      span.setAttribute("style", button.getAttribute("style") || ""); span.setAttribute("aria-hidden", "true"); button.replaceWith(span);
+    });
+    clone.querySelectorAll(".ann-comment[tabindex]").forEach(card => card.removeAttribute("tabindex"));
     clone.querySelectorAll(".page-slot").forEach(slot => {
       const page = slot.querySelector(".page");
       if (page) { page.style.transform = "none"; slot.style.width = page.style.width; slot.style.height = page.style.height; }
@@ -52,11 +62,13 @@
       const img = page.querySelector("img.bg");
       if (pg && img && pg.bg) img.setAttribute("src", pg.bg);
     });
-    // show all comment bubbles so the reader can see them
-    clone.querySelectorAll(".ann-comment").forEach(c => c.classList.add("open"));
     // strip the page-slot wrapper; emit bare .page nodes
     const out = document.createElement("div");
-    clone.querySelectorAll(".page-slot .page").forEach(p => out.appendChild(p));
+    clone.querySelectorAll(".page-slot").forEach(slot => {
+      const page = slot.querySelector(".page"); if (page) out.appendChild(page);
+      const appendix = clone.querySelector('.comment-appendix[data-page="' + page.dataset.page + '"]');
+      if (appendix && appendix.classList.contains("comment-appendix") && appendix.classList.contains("active")) out.appendChild(appendix);
+    });
     return out.innerHTML;
   }
 
@@ -97,9 +109,19 @@
     AN.toast("Saved " + a.download);
   };
 
-  io.print = function () {
+  io.print = async function () {
     if (!AN.state.pages.length) { AN.toast("Nothing to print yet — open a document first."); return false; }
     if (AN.editor) AN.editor.deselect();
+    const images = AN.editor ? AN.editor.loadAllBackgrounds() : Array.from(document.querySelectorAll("#pages img.bg"));
+    try {
+      await Promise.all(images.map(imageReady));
+    } catch (error) {
+      AN.toast(error.message || "A page image could not be prepared for printing.");
+      return false;
+    }
+    // Give style/layout and decoded raster pixels a frame to reach the print
+    // compositor. This is especially important for off-screen PDF pages.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     global.print();
     return true;
   };

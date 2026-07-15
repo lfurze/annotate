@@ -195,7 +195,7 @@
     $("btn-open").addEventListener("click", () => $("file-open").click());
     $("btn-load").addEventListener("click", () => $("file-load").click());
     $("btn-save").addEventListener("click", () => io.save());
-    $("btn-print").addEventListener("click", () => io.print());
+    $("btn-print").addEventListener("click", () => { io.print().catch(error => AN.toast(error.message || "Printing could not start.")); });
     $("btn-png").addEventListener("click", async () => {
       const button = $("btn-png"); button.disabled = true; button.setAttribute("aria-busy", "true");
       try { await io.savePng(currentPage); }

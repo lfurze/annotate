@@ -122,6 +122,12 @@ async function annCount(page) { return await page.evaluate(() => window.AN.state
   check("text content stored", await page.evaluate(() => window.AN.state.anns.some(a => a.type === "text" && /Hello/.test(a.text))));
   check("note content stored", await page.evaluate(() => window.AN.state.anns.some(a => a.type === "note" && /Sticky/.test(a.text))));
   check("comment content stored", await page.evaluate(() => window.AN.state.anns.some(a => a.type === "comment" && /comment/.test(a.text))));
+  const marginalia = await page.evaluate(() => ({
+    rail: !!document.querySelector(".comment-rail .ann-comment"),
+    anchor: !!document.querySelector(".comment-anchor"),
+    oldPin: !!document.querySelector(".ann-comment .pin"),
+  }));
+  check("comments render as anchored marginalia", marginalia.rail && marginalia.anchor && !marginalia.oldPin, JSON.stringify(marginalia));
   await tool(page, "select");
   await page.screenshot({ path: path.join(SHOTS, "02-image-annotated.png") });
 
@@ -162,7 +168,8 @@ async function annCount(page) { return await page.evaluate(() => window.AN.state
   check("saved file is non-trivial", savedHtml.length > 5000, "len=" + savedHtml.length);
   check("saved file embeds state json", savedHtml.includes('id="annotate-state"'));
   check("saved file embeds bg image data", savedHtml.includes("data:image"));
-  check("saved file is viewable (has .page)", savedHtml.includes('class="page"'));
+  check("saved file is viewable (has .page)", /class="[^"]*\bpage\b/.test(savedHtml));
+  check("saved file preserves the margin comment rail", savedHtml.includes("comment-rail") && !savedHtml.includes('class="pin"'));
 
   // open the saved file standalone -> should render annotations with no JS errors from app
   const viewPage = await ctx.newPage();

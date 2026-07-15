@@ -20,7 +20,7 @@ It's a single folder of plain files with **no build step**, which makes it trivi
 - **Highlighter** with 6 colours and adjustable thickness (true multiply blend over text)
 - **Text boxes** with font family, size, colour, bold and italic
 - **Sticky notes** — resizable, in any colour
-- **Comments** — pin-and-bubble threads anchored to the page
+- **Margin comments** — numbered document anchors with readable cards in the page margin
 - **Colour controls** — 6 quick swatches plus a full custom colour picker
 - **Select / move / resize / delete** any annotation
 - **Undo / redo** with full history
