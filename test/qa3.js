@@ -1,5 +1,5 @@
 /* Annotate — QA pass 3: touch & mobile. Run: node test/qa3.js */
-const { chromium } = require("playwright");
+const { browserType } = require("./browser");
 const path = require("path");
 const BASE = "http://127.0.0.1:8777/index.html";
 const SAMPLES = path.join(__dirname, "..", "samples");
@@ -22,7 +22,7 @@ async function installSim(page) {
 const wait = (p, ms) => p.waitForTimeout(ms);
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   const errs = []; page.on("pageerror", e => errs.push(e.message)); page.on("console", m => { if (m.type() === "error") errs.push(m.text()); });

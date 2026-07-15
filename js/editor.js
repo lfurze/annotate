@@ -8,6 +8,8 @@
   let pagesEl, viewportEl;
   let selectedId = null;
   const pageEls = {};   // pageId -> { slot, page, bg, svg, htmlLayer, ui }
+  let lazyObserver = null;
+  const lazyBackgrounds = new WeakMap();
 
   // Active pointer operation (draw / drag / resize / pan). Registering a cancel
   // lets the touch gesture layer abort an accidental stroke when a 2nd finger lands.
@@ -16,6 +18,11 @@
   ed.viewport = function () { return viewportEl; };
   function setOp(cancel) { activeOp = { cancel }; }
   function clearOp() { activeOp = null; }
+  function capturePointer(e) {
+    const target = e.currentTarget;
+    try { if (target && target.setPointerCapture) target.setPointerCapture(e.pointerId); } catch (_) {}
+    return function () { try { if (target && target.hasPointerCapture && target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId); } catch (_) {} };
+  }
 
   AN.on("rerender", () => ed.render());
   AN.on("zoom", () => ed.applyZoom());
@@ -36,6 +43,10 @@
   ed.mount = function () {
     pagesEl = document.getElementById("pages");
     viewportEl = document.getElementById("viewport");
+    document.addEventListener("pointercancel", ed.cancelActiveOp);
+    global.addEventListener("blur", ed.cancelActiveOp);
+    global.addEventListener("beforeprint", ed.loadAllBackgrounds);
+    global.addEventListener("afterprint", ed.refreshLazyBackgrounds);
   };
 
   ed.render = function () {
@@ -43,6 +54,7 @@
     selectedId = null;
     AN.emit("selection", null);
     pagesEl.innerHTML = "";
+    if (lazyObserver) { lazyObserver.disconnect(); lazyObserver = null; }
     for (const k in pageEls) delete pageEls[k];
 
     const hasDoc = AN.state.pages.length > 0;
@@ -62,12 +74,13 @@
       // background
       if (pg.kind === "image") {
         const img = document.createElement("img");
-        img.className = "bg"; img.src = pg.bg; img.alt = "";
+        img.className = "bg"; img.alt = ""; lazyBackgrounds.set(img, pg.bg);
         page.appendChild(img);
+        if (pg.pdfText && pg.pdfText.length) page.appendChild(buildPdfTextLayer(pg.pdfText));
       } else {
         const div = document.createElement("div");
         div.className = "bg-html";
-        div.innerHTML = pg.html || "";
+        div.innerHTML = AN.security.sanitizeDocumentHtml(pg.html || "");
         page.appendChild(div);
       }
 
@@ -83,8 +96,41 @@
     });
 
     ed.applyZoom();
+    ed.refreshLazyBackgrounds();
     renderAllAnnotations();
   };
+
+  ed.loadAllBackgrounds = function () {
+    document.querySelectorAll("#pages img.bg").forEach(img => { const src = lazyBackgrounds.get(img); if (src && img.src !== src) img.src = src; });
+  };
+  ed.refreshLazyBackgrounds = function () {
+    const images = Array.from(document.querySelectorAll("#pages img.bg"));
+    if (lazyObserver) lazyObserver.disconnect();
+    if (!("IntersectionObserver" in global) || !viewportEl) { ed.loadAllBackgrounds(); return; }
+    lazyObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const img = entry.target, src = lazyBackgrounds.get(img);
+        if (entry.isIntersecting) { if (src && img.src !== src) img.src = src; }
+        else img.removeAttribute("src");
+      });
+    }, { root: viewportEl, rootMargin: "1200px 0px" });
+    images.forEach(img => lazyObserver.observe(img));
+  };
+
+  function buildPdfTextLayer(items) {
+    const layer = document.createElement("div");
+    layer.className = "pdf-text-layer"; layer.setAttribute("aria-label", "Selectable PDF text");
+    items.forEach(item => {
+      const span = document.createElement("span");
+      span.textContent = item.text;
+      span.style.left = item.x + "px"; span.style.top = item.y + "px";
+      span.style.fontSize = item.h + "px"; span.style.height = item.h + "px";
+      if (item.w) span.style.width = item.w + "px";
+      if (item.angle) span.style.transform = "rotate(" + item.angle + "deg)";
+      layer.appendChild(span);
+    });
+    return layer;
+  }
 
   ed.applyZoom = function () {
     const z = AN.settings.zoom;
@@ -199,7 +245,10 @@
     wrap.className = "ann ann-comment" + (a.open ? " open" : ""); wrap.dataset.id = a.id;
     wrap.style.left = a.x + "px"; wrap.style.top = a.y + "px";
     const pin = document.createElement("div"); pin.className = "pin";
-    pin.innerHTML = '<svg viewBox="0 0 28 30"><path d="M14 0C7 0 2 4.7 2 11c0 7.6 9.3 16.7 11.2 18.4a1.2 1.2 0 0 0 1.6 0C16.7 27.7 26 18.6 26 11 26 4.7 21 0 14 0z" fill="' + a.color + '" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="11" r="4.2" fill="#fff"/></svg>';
+    const pinSvg = svgEl("svg", { viewBox: "0 0 28 30" });
+    pinSvg.appendChild(svgEl("path", { d: "M14 0C7 0 2 4.7 2 11c0 7.6 9.3 16.7 11.2 18.4a1.2 1.2 0 0 0 1.6 0C16.7 27.7 26 18.6 26 11 26 4.7 21 0 14 0z", fill: a.color, stroke: "#fff", "stroke-width": 1.5 }));
+    pinSvg.appendChild(svgEl("circle", { cx: 14, cy: 11, r: 4.2, fill: "#fff" }));
+    pin.appendChild(pinSvg);
     const bubble = document.createElement("div"); bubble.className = "bubble";
     const cbody = document.createElement("div"); cbody.className = "cbody"; cbody.textContent = a.text || "";
     const meta = document.createElement("div"); meta.className = "cmeta"; meta.textContent = "Comment";
@@ -217,6 +266,10 @@
   // ---- HTML annotation interaction (drag / resize / edit / select) ---------
   function bindHtmlAnn(wrap, a, opts) {
     opts = opts || {};
+    wrap.tabIndex = 0;
+    wrap.setAttribute("role", "button");
+    wrap.setAttribute("aria-label", (a.type === "text" ? "Text annotation" : a.type === "note" ? "Sticky note" : "Comment") + (a.text ? ": " + a.text.slice(0, 80) : "") + ". Press Enter to edit; use arrow keys to move.");
+    wrap.setAttribute("aria-keyshortcuts", "Enter ArrowUp ArrowDown ArrowLeft ArrowRight Delete");
     const dragEl = opts.dragHandleSel ? wrap.querySelector(opts.dragHandleSel) : wrap;
 
     dragEl.addEventListener("pointerdown", (e) => {
@@ -227,8 +280,9 @@
       selectAnn(a.id);
       const start = ptOnPage(a.page, e.clientX, e.clientY);
       const ox = a.x, oy = a.y; let moved = false;
+      const release = capturePointer(e);
       AN.beginChange();
-      const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+      const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
       const move = (ev) => {
         const p = ptOnPage(a.page, ev.clientX, ev.clientY);
         a.x = ox + (p.x - start.x); a.y = oy + (p.y - start.y);
@@ -271,6 +325,15 @@
         });
       };
       wrap.addEventListener("dblclick", startEdit);
+      wrap.addEventListener("keydown", e => {
+        if (e.target.isContentEditable) return;
+        if (e.key === "Enter") { e.preventDefault(); startEdit(e); return; }
+        const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+        if (!delta) return;
+        e.preventDefault(); e.stopPropagation(); AN.beginChange();
+        const step = e.shiftKey ? 10 : 1; a.x += delta[0] * step; a.y += delta[1] * step;
+        wrap.style.left = a.x + "px"; wrap.style.top = a.y + "px"; AN.endChange(); drawSelection(a.id);
+      });
     }
 
     // resize handle
@@ -282,8 +345,10 @@
         selectAnn(a.id);
         const start = ptOnPage(a.page, e.clientX, e.clientY);
         const ow = wrap.offsetWidth, oh = wrap.offsetHeight;
+        const oldW = a.w, oldH = a.h;
+        const release = capturePointer(e);
         AN.beginChange();
-        const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+        const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
         const move = (ev) => {
           const p = ptOnPage(a.page, ev.clientX, ev.clientY);
           const w = Math.max(40, ow + (p.x - start.x));
@@ -294,7 +359,12 @@
           drawSelection(a.id);
         };
         const up = () => { detach(); clearOp(); AN.endChange(); };
-        setOp(() => { detach(); AN.cancelChange(); });
+        setOp(() => {
+          detach(); a.w = oldW; a.h = oldH;
+          wrap.style.width = ow + "px";
+          if (a.type === "note") wrap.style.minHeight = oh + "px";
+          drawSelection(a.id); AN.cancelChange();
+        });
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", up);
       });
@@ -307,6 +377,7 @@
     refs.page.addEventListener("pointerdown", (e) => {
       const tool = AN.settings.tool;
       if (e.button !== 0) return;
+      if (tool === "select" && e.target.closest && e.target.closest(".pdf-text-layer span")) return;
       const p = ptOnPage(pageId, e.clientX, e.clientY);
 
       if (tool === "select") { trySelectVector(pageId, p, e); return; }
@@ -321,13 +392,14 @@
   // freehand pen / highlighter
   function startFreehand(pageId, p, e, tool) {
     e.preventDefault();
+    const release = capturePointer(e);
     const a = { id: AN.uid(), page: pageId, type: tool,
       color: tool === "highlight" ? AN.settings.hlColor : AN.settings.color,
       width: tool === "highlight" ? AN.settings.hlWidth : AN.settings.width,
       points: [[r2(p.x), r2(p.y)]] };
     const refs = pageEls[pageId];
     const node = buildStroke(a); refs.svg.appendChild(node);
-    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+    const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(pageId, ev.clientX, ev.clientY);
       const last = a.points[a.points.length - 1];
@@ -335,7 +407,11 @@
       a.points.push([r2(q.x), r2(q.y)]);
       node.setAttribute("d", pathFromPoints(a.points));
     };
-    const up = () => { detach(); clearOp(); node.remove(); AN.addAnn(a); renderAnn(a); };
+    const up = () => {
+      detach(); clearOp(); node.remove();
+      if (a.points.length > 2) a.points = simplifyPoints(a.points, tool === "highlight" ? 1.5 : 0.65);
+      AN.addAnn(a); renderAnn(a);
+    };
     setOp(() => { detach(); node.remove(); });   // cancel: discard the in-progress stroke
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
@@ -344,13 +420,14 @@
   // shapes (rect / ellipse / line / arrow) — drag from corner/endpoint
   function startShape(pageId, p, e, tool) {
     e.preventDefault();
+    const release = capturePointer(e);
     const isLine = (tool === "line" || tool === "arrow");
     const a = isLine
       ? { id: AN.uid(), page: pageId, type: tool, color: AN.settings.color, width: AN.settings.width, x1: r2(p.x), y1: r2(p.y), x2: r2(p.x), y2: r2(p.y) }
       : { id: AN.uid(), page: pageId, type: tool, color: AN.settings.color, width: AN.settings.width, x: r2(p.x), y: r2(p.y), w: 0, h: 0 };
     const refs = pageEls[pageId];
     let node = buildShape(a); refs.svg.appendChild(node);
-    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+    const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(pageId, ev.clientX, ev.clientY);
       if (isLine) {
@@ -435,8 +512,9 @@
   // Select mode; on desktop it's a convenient grab-to-scroll.
   function startPan(e) {
     const vp = viewportEl; if (!vp) return;
+    const release = capturePointer(e);
     const sx = vp.scrollLeft, sy = vp.scrollTop, x0 = e.clientX, y0 = e.clientY;
-    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+    const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => { vp.scrollLeft = sx - (ev.clientX - x0); vp.scrollTop = sy - (ev.clientY - y0); };
     const up = () => { detach(); clearOp(); };
     setOp(detach);
@@ -468,10 +546,11 @@
 
   function startVectorDrag(a, p, e) {
     e.preventDefault();
+    const release = capturePointer(e);
     const start = p;
     const orig = JSON.stringify(a);
     AN.beginChange();
-    const detach = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+    const detach = () => { release(); document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
     const move = (ev) => {
       const q = ptOnPage(a.page, ev.clientX, ev.clientY);
       const dx = q.x - start.x, dy = q.y - start.y;
@@ -533,17 +612,34 @@
   };
 
   // apply current style settings to the selected annotation (live editing)
-  ed.applyStyleToSelection = function (patch) {
+  ed.applyStyleToSelection = function (patch, options) {
     if (!selectedId) return false;
     const a = AN.getAnn(selectedId); if (!a) return false;
-    AN.beginChange();
+    const continuous = options && options.continuous;
+    if (!continuous) AN.beginChange();
     Object.assign(a, patch);
-    AN.endChange();
+    if (!continuous) AN.endChange();
     rerenderAnn(a);
     return true;
   };
 
   function r2(n) { return Math.round(n * 100) / 100; }
+  function simplifyPoints(points, tolerance) {
+    const sqTolerance = tolerance * tolerance;
+    function sqSegDist(p, a, b) {
+      let x = a[0], y = a[1], dx = b[0] - x, dy = b[1] - y;
+      if (dx || dy) { let t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy); if (t > 1) { x = b[0]; y = b[1]; } else if (t > 0) { x += dx * t; y += dy * t; } }
+      dx = p[0] - x; dy = p[1] - y; return dx * dx + dy * dy;
+    }
+    const keep = new Uint8Array(points.length); keep[0] = keep[points.length - 1] = 1;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+      const pair = stack.pop(), first = pair[0], last = pair[1]; let max = sqTolerance, index = 0;
+      for (let i = first + 1; i < last; i++) { const d = sqSegDist(points[i], points[first], points[last]); if (d > max) { index = i; max = d; } }
+      if (index) { keep[index] = 1; stack.push([first, index], [index, last]); }
+    }
+    return points.filter((_, i) => keep[i]);
+  }
   function snapAngle(x1, y1, x2, y2) {
     const dx = x2 - x1, dy = y2 - y1; const len = Math.hypot(dx, dy);
     let ang = Math.atan2(dy, dx); ang = Math.round(ang / (Math.PI / 4)) * (Math.PI / 4);

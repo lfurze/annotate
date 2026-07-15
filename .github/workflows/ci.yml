@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install locked test dependencies
+        run: npm ci
+        working-directory: test
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+        working-directory: test
+      - name: Check JavaScript syntax
+        run: find js test \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Verify deployable site staging
+        run: sh scripts/stage-site.sh && test -f _site/vendor/mammoth.LICENSE && test -f _site/vendor/pdfjs/wasm/openjpeg.wasm && test -f _site/_headers
+      - name: Start the static app
+        run: python3 -m http.server 8777 > /tmp/annotate-server.log 2>&1 &
+      - name: Wait for the app
+        run: curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8777/ > /dev/null
+      - name: Run privacy and browser regressions
+        run: npm test

@@ -1,5 +1,5 @@
 /* Annotate — automated QA via Playwright. Run: node test/qa.js */
-const { chromium } = require("playwright");
+const { browserType } = require("./browser");
 const path = require("path");
 const fs = require("fs");
 
@@ -45,9 +45,10 @@ async function tool(page, t) { await page.click(`.tool[data-tool="${t}"]`); }
 async function annCount(page) { return await page.evaluate(() => window.AN.state.anns.length); }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
   const page = await ctx.newPage();
+  page.on("dialog", dialog => dialog.accept());
 
   const consoleErrors = [];
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });

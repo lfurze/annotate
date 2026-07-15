@@ -1,5 +1,5 @@
 /* Annotate — QA pass 2: edge cases. Run: node test/qa2.js */
-const { chromium } = require("playwright");
+const { browserType } = require("./browser");
 const path = require("path");
 const fs = require("fs");
 const BASE = "http://127.0.0.1:8777/index.html";
@@ -14,7 +14,7 @@ async function dragNat(page, x1, y1, x2, y2) { const a = await toClient(page, x1
 async function dismiss(page) { if (await page.isVisible("#restore-banner")) await page.click("#restore-no"); }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
   const page = await ctx.newPage();
   const errs = []; page.on("pageerror", e => errs.push(e.message)); page.on("console", m => { if (m.type() === "error") errs.push(m.text()); });

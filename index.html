@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; worker-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Annotate — privacy-first document annotation</title>
 <meta name="description" content="Privacy-first, fully local document annotation. Open PDF, DOCX and images; draw, highlight, comment; save as self-contained HTML. Nothing leaves your browser.">
 <link rel="stylesheet" href="css/styles.css">
@@ -21,24 +22,37 @@
     <button id="btn-open" class="tbtn" title="Open a PDF, DOCX or image (O)"><span class="lbl-full">Open document</span><span class="lbl-short">Open</span></button>
     <button id="btn-load" class="tbtn" title="Load a saved .html project (L)"><span class="lbl-full">Load project</span><span class="lbl-short">Load</span></button>
     <button id="btn-save" class="tbtn primary" title="Save as self-contained HTML (Ctrl/Cmd+S)">Save</button>
+    <button id="btn-print" class="tbtn" title="Print or save a flattened PDF"><span class="lbl-full">Print / PDF</span><span class="lbl-short">Print</span></button>
+    <button id="btn-png" class="tbtn" title="Export the current page as a flattened PNG"><span class="lbl-full">Export PNG</span><span class="lbl-short">PNG</span></button>
+    <button id="btn-annotations" class="tbtn" aria-expanded="false" aria-controls="annotation-sidebar"><span class="lbl-full">Annotations</span><span class="lbl-short">Marks</span></button>
+    <button id="btn-pages" class="tbtn" aria-expanded="false" aria-controls="page-sidebar">Pages</button>
+    <button id="btn-projects" class="tbtn" aria-haspopup="dialog">Projects</button>
   </div>
 
   <div class="topbar-group">
-    <button id="btn-undo" class="tbtn icon" title="Undo (Ctrl/Cmd+Z)" disabled>
-      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <button id="btn-undo" class="tbtn icon" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo" disabled>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <button id="btn-redo" class="tbtn icon" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>
-      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <button id="btn-redo" class="tbtn icon" title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo" disabled>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </div>
 
   <div class="topbar-group right">
-    <button id="btn-zoom-out" class="tbtn icon" title="Zoom out (−)">−</button>
-    <span id="zoom-label" class="zoom-label" title="Click to reset zoom">100%</span>
-    <button id="btn-zoom-in" class="tbtn icon" title="Zoom in (+)">+</button>
-    <button id="btn-help" class="tbtn icon" title="Keyboard shortcuts & about (?)">?</button>
+    <div id="page-nav" class="page-nav" aria-label="Page navigation" hidden>
+      <button id="btn-page-prev" class="tbtn icon" aria-label="Previous page" title="Previous page">‹</button>
+      <span id="page-label" aria-live="polite">1 / 1</span>
+      <button id="btn-page-next" class="tbtn icon" aria-label="Next page" title="Next page">›</button>
+    </div>
+    <span id="autosave-status" class="autosave-status" role="status" aria-live="polite"></span>
+    <button id="btn-zoom-out" class="tbtn icon" title="Zoom out (−)" aria-label="Zoom out">−</button>
+    <button id="zoom-label" class="zoom-label" title="Reset zoom" aria-label="Reset zoom to 100 percent">100%</button>
+    <button id="btn-zoom-in" class="tbtn icon" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    <button id="btn-help" class="tbtn icon" title="Keyboard shortcuts & about (?)" aria-label="Help and keyboard shortcuts">?</button>
   </div>
+  <button id="btn-mobile-actions" class="tbtn" aria-expanded="false" aria-controls="mobile-actions" hidden>More</button>
 </header>
+<div id="mobile-actions" class="mobile-actions-panel" aria-label="More application actions" hidden></div>
 
 <div id="workspace">
   <!-- ===== Left tool rail ===== -->
@@ -85,16 +99,32 @@
           <button id="welcome-open" class="tbtn primary big">Open a document</button>
           <button id="welcome-load" class="tbtn big">Load a saved project</button>
         </div>
-        <p class="muted">Accepts PDF, DOCX, PNG, JPG, GIF, WebP. Drag &amp; drop anywhere.</p>
+        <p class="muted">Accepts PDF, DOCX, PNG, JPG, GIF, WebP and BMP. Drag &amp; drop anywhere.</p>
         <ul class="welcome-tips">
           <li>Draw, highlight in 6 colours, add text, sticky notes &amp; comments</li>
           <li>Save as a self-contained <code>.html</code> file — viewable anywhere, re-editable here</li>
-          <li>Autosaves locally; reopen the tab to pick up where you left off</li>
+          <li id="welcome-autosave">Autosaves locally; reopen the tab to pick up where you left off</li>
         </ul>
       </div>
     </div>
     <div id="pages" hidden></div>
   </main>
+  <aside id="annotation-sidebar" aria-labelledby="annotation-sidebar-title" hidden>
+    <div class="sidebar-head">
+      <h2 id="annotation-sidebar-title">Annotations</h2>
+      <button id="btn-close-annotations" class="tbtn icon" aria-label="Close annotations">×</button>
+    </div>
+    <p id="annotation-summary" class="muted"></p>
+    <div id="annotation-list" class="annotation-list"></div>
+  </aside>
+  <aside id="page-sidebar" aria-labelledby="page-sidebar-title" hidden>
+    <div class="sidebar-head">
+      <h2 id="page-sidebar-title">Pages</h2>
+      <button id="btn-close-pages" class="tbtn icon" aria-label="Close pages">×</button>
+    </div>
+    <p id="page-summary" class="muted"></p>
+    <div id="page-list" class="page-list"></div>
+  </aside>
 </div>
 
 <!-- ===== Contextual property bar (floats above viewport) ===== -->
@@ -104,7 +134,7 @@
     <label class="prop-label">Colour</label>
     <div class="swatches" id="color-swatches"></div>
     <label class="custom-color" title="Custom colour">
-      <input type="color" id="color-custom" value="#e23b3b">
+      <input type="color" id="color-custom" value="#e23b3b" aria-label="Custom colour">
       <span class="cc-chip" id="cc-chip"></span>
     </label>
   </div>
@@ -116,25 +146,25 @@
   <!-- stroke width -->
   <div class="prop-group" data-for="width">
     <label class="prop-label">Size</label>
-    <input type="range" id="stroke-width" min="1" max="40" value="3">
+    <input type="range" id="stroke-width" min="1" max="40" value="3" aria-label="Stroke size">
     <span class="num" id="stroke-width-val">3</span>
   </div>
   <!-- font controls -->
   <div class="prop-group" data-for="font">
     <label class="prop-label">Font</label>
-    <select id="font-family">
+    <select id="font-family" aria-label="Font family">
       <option value="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">Sans</option>
       <option value="Georgia, 'Times New Roman', serif">Serif</option>
       <option value="'Courier New', ui-monospace, monospace">Mono</option>
       <option value="'Comic Sans MS', 'Marker Felt', cursive">Casual</option>
     </select>
-    <select id="font-size">
+    <select id="font-size" aria-label="Font size">
       <option>10</option><option>12</option><option selected>16</option><option>18</option>
       <option>20</option><option>24</option><option>28</option><option>32</option>
       <option>40</option><option>48</option><option>64</option>
     </select>
-    <button id="font-bold" class="mini" title="Bold"><b>B</b></button>
-    <button id="font-italic" class="mini" title="Italic"><i>I</i></button>
+    <button id="font-bold" class="mini" title="Bold" aria-label="Bold" aria-pressed="false"><b>B</b></button>
+    <button id="font-italic" class="mini" title="Italic" aria-label="Italic" aria-pressed="false"><i>I</i></button>
   </div>
   <!-- delete selected -->
   <div class="prop-group" data-for="selection">
@@ -143,8 +173,8 @@
 </div>
 
 <!-- ===== Help / about dialog ===== -->
-<dialog id="help-dialog">
-  <h2>Annotate</h2>
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <h2 id="help-title">Annotate</h2>
   <p class="muted">Privacy-first, fully local document annotation. Apache-2.0 licensed open source.</p>
   <h3>Tools</h3>
   <ul class="kbd-list">
@@ -162,8 +192,23 @@
     <li><kbd>+</kbd> / <kbd>−</kbd> Zoom &nbsp; <kbd>0</kbd> Reset zoom</li>
   </ul>
   <h3>Privacy</h3>
-  <p class="muted">Your documents never leave your device. There is no server, no analytics, no network calls. Work is autosaved to this browser's local storage only.</p>
+  <p id="help-privacy" class="muted">Your documents never leave your device. There is no document-processing server, analytics, telemetry, or third-party runtime service. Work is autosaved to this browser's local storage only.</p>
+  <p><a href="PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy details</a> · <a href="SECURITY.md" target="_blank" rel="noopener noreferrer">Security policy</a> · <a href="https://github.com/lfurze/annotate" target="_blank" rel="noopener noreferrer">Source code</a></p>
   <form method="dialog"><button class="tbtn primary">Close</button></form>
+</dialog>
+
+<!-- ===== Named local project library ===== -->
+<dialog id="projects-dialog" aria-labelledby="projects-title">
+  <div class="dialog-head">
+    <div><h2 id="projects-title">Local projects</h2><p class="muted">Stored only in this browser on this device.</p></div>
+    <button id="btn-close-projects" class="tbtn icon" aria-label="Close local projects">×</button>
+  </div>
+  <form id="save-local-form" class="save-local-form">
+    <label for="local-project-name">Project name</label>
+    <div><input id="local-project-name" maxlength="120" autocomplete="off"><button class="tbtn primary" type="submit">Save local copy</button></div>
+  </form>
+  <p id="storage-summary" class="muted" role="status" aria-live="polite"></p>
+  <div id="local-project-list" class="local-project-list"></div>
 </dialog>
 
 <!-- restore banner -->
@@ -174,24 +219,27 @@
 </div>
 
 <!-- toast -->
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <!-- hidden file inputs -->
-<input type="file" id="file-open" accept=".pdf,.docx,image/*" hidden>
+<input type="file" id="file-open" accept=".pdf,.docx,.png,.jpg,.jpeg,.gif,.webp,.bmp" hidden>
 <input type="file" id="file-load" accept=".html,.htm" hidden>
 
 <!-- drag overlay -->
 <div id="drop-overlay" class="drop-overlay" hidden><div>Drop to open</div></div>
 
 <!-- ===== Scripts (plain, no build step) ===== -->
-<script>window.pdfjsLib=window.pdfjsLib||null;</script>
-<script src="vendor/pdf.min.js"></script>
+<script type="module" src="js/pdf-loader.mjs"></script>
 <script src="vendor/mammoth.browser.min.js"></script>
 <script src="js/state.js"></script>
+<script src="js/security.js"></script>
 <script src="js/import.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/io.js"></script>
 <script src="js/app.js"></script>
+<script src="js/projects.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/sidebar.js"></script>
 <script src="js/gestures.js"></script>
 </body>
 </html>

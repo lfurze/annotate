@@ -2,4 +2,5 @@ node_modules/
 test/.playwright/
 test/screenshots/
 *.log
+_site/
 .DS_Store

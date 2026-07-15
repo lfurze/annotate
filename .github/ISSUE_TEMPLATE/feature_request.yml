@@ -1,0 +1,10 @@
+name: Feature request
+description: Suggest a privacy-preserving improvement
+title: "[Feature]: "
+body:
+  - type: textarea
+    attributes:
+      label: Problem and proposed outcome
+      description: Explain the user need and how the idea preserves local processing.
+    validations:
+      required: true

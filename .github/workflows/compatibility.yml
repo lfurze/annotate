@@ -1,0 +1,40 @@
+name: Browser compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 17 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install locked test dependencies
+        run: npm ci
+        working-directory: test
+      - name: Install browser and system dependencies
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: test
+      - name: Start the static app
+        run: python3 -m http.server 8777 > /tmp/annotate-server.log 2>&1 &
+      - name: Wait for the app
+        run: curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8777/ > /dev/null
+      - name: Run compatibility suite
+        run: npm test
+        env:
+          BROWSER: ${{ matrix.browser }}

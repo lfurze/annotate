@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible problem without sharing private documents
+title: "[Bug]: "
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include clear reproduction steps and the result you expected.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Browser and operating system
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Document type
+      options: [PDF, DOCX, Image, Saved Annotate project, No document]
+  - type: checkboxes
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not attached a private or confidential document.
+          required: true

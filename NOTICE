@@ -9,11 +9,13 @@ http://www.apache.org/licenses/LICENSE-2.0
 Third-party components bundled in vendor/
 ------------------------------------------------------------------------
 
-pdf.js (vendor/pdf.min.js, vendor/pdf.worker.min.js)
+pdf.js 5.7.284 (vendor/pdf.min.mjs, vendor/pdf.worker.min.mjs)
   Mozilla PDF.js — https://github.com/mozilla/pdf.js
   Licensed under the Apache License, Version 2.0.
+  Full licence and bundled-resource notices: vendor/pdfjs.LICENSE and vendor/pdfjs/.
 
-mammoth.js (vendor/mammoth.browser.min.js)
+mammoth.js 1.12.0 (vendor/mammoth.browser.min.js)
   https://github.com/mwilliamson/mammoth.js
   Copyright (c) Michael Williamson
   Licensed under the BSD 2-Clause License.
+  The complete copyright, conditions, and disclaimer are in vendor/mammoth.LICENSE.

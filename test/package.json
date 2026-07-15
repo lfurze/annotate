@@ -1,1 +1,13 @@
-{ "name": "annotate-test", "private": true, "type": "commonjs", "dependencies": { "playwright": "^1.48.0" } }
+{
+  "name": "annotate-test",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test:fast": "node privacy-source.js && node vendor-integrity.js && node security.js",
+    "test:browser": "node network-privacy.js && node local-projects.js && node page-organizer.js && node pointer-cancel.js && node accessibility.js && node pdf-text.js && node lazy-raster.js && node annotation-sidebar.js && node navigation-print.js && node import-resilience.js && node qa.js && node qa2.js && node qa3.js",
+    "test": "npm run test:fast && npm run test:browser"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}
