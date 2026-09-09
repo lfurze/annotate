@@ -8,6 +8,6 @@
     "test": "npm run test:fast && npm run test:browser"
   },
   "dependencies": {
-    "playwright": "^1.61.1"
+    "playwright": "^1.63.0"
   }
 }
